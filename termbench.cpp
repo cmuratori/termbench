@@ -83,19 +83,62 @@ static void AppendStat(buffer *Buffer, char const *Name, int Value, char const *
 #define MAX_TERM_HEIGHT 4096
 static char TerminalBuffer[256+16*MAX_TERM_WIDTH*MAX_TERM_HEIGHT];
 
+#ifdef _WIN32
 #include <windows.h>
 #include <intrin.h>
+#else
+#include "stdio.h"
+#include "unistd.h"
+#include "cpuid.h"
+#include <sys/time.h>
+#include <sys/ioctl.h>
+typedef unsigned long DWORD;
+typedef unsigned long LONG;
+typedef unsigned long long LONGLONG;
 
+typedef union _LARGE_INTEGER {
+  struct {
+    DWORD LowPart;
+    LONG  HighPart;
+  } DUMMYSTRUCTNAME;
+  struct {
+    DWORD LowPart;
+    LONG  HighPart;
+  } u;
+  LONGLONG QuadPart;
+} LARGE_INTEGER;
+
+void QueryPerformanceFrequency(LARGE_INTEGER* li) {
+    LARGE_INTEGER perf;
+    perf.QuadPart = 1000;
+    *li = perf;
+}
+
+void QueryPerformanceCounter(LARGE_INTEGER* li) {
+    struct timeval t;
+    gettimeofday(&t, nullptr);
+
+    LARGE_INTEGER perf;
+    perf.QuadPart = t.tv_usec;
+    *li = perf;
+}
+#endif
+
+#ifdef _WIN32
 extern "C" void mainCRTStartup(void)
+#else
+int main()
+#endif
 {
     char CPU[65] = {};
+#ifdef _WIN32
     for(int SegmentIndex = 0;
         SegmentIndex < 3;
         ++SegmentIndex)
     {
         __cpuid((int *)(CPU + 16*SegmentIndex), 0x80000002 + SegmentIndex);
     }
-    
+#endif
     for(int Num = 0; Num < 256; ++Num)
     {
         buffer NumBuf = {sizeof(NumberTable[Num]), 0, NumberTable[Num]};
@@ -103,6 +146,7 @@ extern "C" void mainCRTStartup(void)
         AppendChar(&NumBuf, 0);
     }
     
+#ifdef _WIN32
     HANDLE TerminalIn = GetStdHandle(STD_INPUT_HANDLE);
     HANDLE TerminalOut = GetStdHandle(STD_OUTPUT_HANDLE);
     
@@ -111,10 +155,12 @@ extern "C" void mainCRTStartup(void)
     int VirtualTerminalSupport = (GetConsoleMode(TerminalOut, &WinConMode) &&
                                   SetConsoleMode(TerminalOut, (WinConMode & ~(ENABLE_ECHO_INPUT|ENABLE_LINE_INPUT)) |
                                                  EnableVirtualTerminalProcessing));
-    
+#else
+    int VirtualTerminalSupport = 1;
+#endif
     LARGE_INTEGER Freq;
     QueryPerformanceFrequency(&Freq);
-    
+
     int PrepMS = 0;
     int WriteMS = 0;
     int ReadMS = 0;
@@ -164,11 +210,19 @@ extern "C" void mainCRTStartup(void)
         
         if(!DimIsKnown)
         {
+        #ifdef _WIN32
             CONSOLE_SCREEN_BUFFER_INFO ConsoleInfo;
             GetConsoleScreenBufferInfo(TerminalOut, &ConsoleInfo);
             Width = ConsoleInfo.srWindow.Right - ConsoleInfo.srWindow.Left;
             Height = ConsoleInfo.srWindow.Bottom - ConsoleInfo.srWindow.Top;
             DimIsKnown = true;
+        #else
+            struct winsize ws;
+            ioctl(1, TIOCGWINSZ, &ws);
+            Width = ws.ws_col;
+            Height = ws.ws_row;
+            DimIsKnown = true;
+        #endif
         }
         
         if(Width > MAX_TERM_WIDTH) Width = MAX_TERM_WIDTH;
@@ -202,7 +256,11 @@ extern "C" void mainCRTStartup(void)
             if(WritePerLine)
             {
                 NextByteCount += Frame.Count;
+                #ifdef _WIN32
                 WriteConsoleA(TerminalOut, Frame.Data, Frame.Count, 0, 0);
+                #else
+                write(STDOUT_FILENO, Frame.Data, Frame.Count);
+                #endif
                 Frame.Count = 0;
             }
         }
@@ -244,12 +302,17 @@ extern "C" void mainCRTStartup(void)
         QueryPerformanceCounter(&B);
         
         NextByteCount += Frame.Count;
+        #ifdef _WIN32
         WriteConsoleA(TerminalOut, Frame.Data, Frame.Count, 0, 0);
+        #else
+        write(STDOUT_FILENO, Frame.Data, Frame.Count);
+        #endif        
         
         LARGE_INTEGER C;
         QueryPerformanceCounter(&C);
 
         int ResetStats = false;
+        #ifdef _WIN32
         while(WaitForSingleObject(TerminalIn, 0) == WAIT_OBJECT_0)
         {
             INPUT_RECORD Record;
@@ -284,7 +347,8 @@ extern "C" void mainCRTStartup(void)
                 }
             }
         }
-        
+        #endif
+
         LARGE_INTEGER D;
         QueryPerformanceCounter(&D);
         
