@@ -323,9 +323,9 @@ int main(int ArgCount, char **Args)
         __cpuid((int *)(CPU + 16*SegmentIndex), 0x80000002 + SegmentIndex);
 #else
         __get_cpuid(0x80000002 + SegmentIndex,
-                    (int unsigned *)(CPU + 16*SegmentIndex)
-                    (int unsigned *)(CPU + 16*SegmentIndex + 4)
-                    (int unsigned *)(CPU + 16*SegmentIndex + 8)
+                    (int unsigned *)(CPU + 16*SegmentIndex),
+                    (int unsigned *)(CPU + 16*SegmentIndex + 4),
+                    (int unsigned *)(CPU + 16*SegmentIndex + 8),
                     (int unsigned *)(CPU + 16*SegmentIndex + 12));
 #endif
     }
