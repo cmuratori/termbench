@@ -1,7 +1,3 @@
-#include <io.h>
-#include <fcntl.h>
-#include <stdio.h>
-
 #define VERSION_NAME "TermMarkV2"
 
 #define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
@@ -22,7 +18,11 @@ static u64 GetTimer(void)
     QueryPerformanceCounter(&Result);
     return Result.QuadPart;
 }
+#define WRITE_FUNCTION _write
 #else
+#include <time.h>
+#include <unistd.h>
+#include <cpuid.h>
 static u64 GetTimerFrequency(void)
 {
     u64 Result = 1000000000ull;
@@ -35,7 +35,12 @@ static u64 GetTimer(void)
     u64 Result = ((u64)Spec.tv_sec * 1000000000ull) + (u64)Spec.tv_nsec;
     return Result;
 }
+#define WRITE_FUNCTION write
 #endif
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 struct buffer
 {
@@ -133,7 +138,7 @@ struct test_context
 
 static void RawFlushBuffer(int OutputHandle, buffer *Frame)
 {
-    _write(OutputHandle, Frame->Data, Frame->Count);
+    WRITE_FUNCTION(OutputHandle, Frame->Data, Frame->Count);
     Frame->Count = 0;
 }
 
@@ -290,8 +295,6 @@ int main(int ArgCount, char **Args)
     int VirtualTerminalSupport = 0;
     int TestSize = TestSize_Normal;
 
-    _setmode(1, _O_BINARY);
-
     for(int ArgIndex = 1; ArgIndex < ArgCount; ++ArgIndex)
     {
         char *Arg = Args[ArgIndex];
@@ -316,7 +319,15 @@ int main(int ArgCount, char **Args)
     char CPU[65] = {};
     for(int SegmentIndex = 0; SegmentIndex < 3; ++SegmentIndex)
     {
+#if _WIN32
         __cpuid((int *)(CPU + 16*SegmentIndex), 0x80000002 + SegmentIndex);
+#else
+        __get_cpuid(0x80000002 + SegmentIndex,
+                    (int unsigned *)(CPU + 16*SegmentIndex)
+                    (int unsigned *)(CPU + 16*SegmentIndex + 4)
+                    (int unsigned *)(CPU + 16*SegmentIndex + 8)
+                    (int unsigned *)(CPU + 16*SegmentIndex + 12));
+#endif
     }
 
     for(int Num = 0; Num < 256; ++Num)
@@ -327,6 +338,9 @@ int main(int ArgCount, char **Args)
     }
 
 #if _WIN32
+    int OutputHandle = _fileno(stdout);
+    _setmode(1, _O_BINARY);
+    
     if(!BypassConhost)
     {
         HANDLE TerminalOut = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -337,9 +351,10 @@ int main(int ArgCount, char **Args)
                                   SetConsoleMode(TerminalOut, (WinConMode & ~(ENABLE_ECHO_INPUT|ENABLE_LINE_INPUT)) |
                                                  EnableVirtualTerminalProcessing));
     }
+#else
+    int OutputHandle = STDOUT_FILENO;
 #endif
 
-    int OutputHandle = _fileno(stdout);
 
     u64 Freq = GetTimerFrequency();
 
