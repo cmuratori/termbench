@@ -1,6 +1,41 @@
+#include <io.h>
+#include <fcntl.h>
+#include <stdio.h>
+
 #define VERSION_NAME "TermMarkV2"
 
 #define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
+typedef unsigned long long u64;
+
+#if _WIN32
+#include <windows.h>
+#include <intrin.h>
+static u64 GetTimerFrequency(void)
+{
+    LARGE_INTEGER Result;
+    QueryPerformanceFrequency(&Result);
+    return Result.QuadPart;
+}
+static u64 GetTimer(void)
+{
+    LARGE_INTEGER Result;
+    QueryPerformanceCounter(&Result);
+    return Result.QuadPart;
+}
+#else
+static u64 GetTimerFrequency(void)
+{
+    u64 Result = 1000000000ull;
+    return Result;
+}
+static u64 GetTimer(void)
+{
+    struct timespec Spec;
+    clock_gettime(CLOCK_MONOTONIC, &Spec);
+    u64 Result = ((u64)Spec.tv_sec * 1000000000ull) + (u64)Spec.tv_nsec;
+    return Result;
+}
+#endif
 
 struct buffer
 {
@@ -40,7 +75,13 @@ static void AppendDecimal(buffer *Buffer, int unsigned Value)
 
 static void AppendDouble(buffer *Buffer, double Value)
 {
-    AppendDecimal(Buffer, (int unsigned)(Value * 1000.0));
+    int Result = snprintf(Buffer->Data + Buffer->Count,
+                          Buffer->MaxCount - Buffer->Count,
+                          "%.04f", Value);
+    if(Result > 0)
+    {
+        Buffer->Count += Result;
+    }
 }
 
 static void AppendGoto(buffer *Buffer, int X, int Y)
@@ -70,17 +111,14 @@ static double GetGBS(double Bytes, double Seconds)
     return Result;
 }
 
-#define MAX_TERM_WIDTH 4096
-#define MAX_TERM_HEIGHT 4096
-static char TerminalBuffer[256+16*MAX_TERM_WIDTH*MAX_TERM_HEIGHT];
+static char TerminalBuffer[64*1024*1024];
 
-#include <windows.h>
-#include <intrin.h>
 #include "fast_pipe.h"
 
 struct test_context
 {
-    HANDLE TerminalOut;
+    int OutputHandle;
+
     buffer Frame;
     int Width;
     int Height;
@@ -88,30 +126,72 @@ struct test_context
 
     size_t TotalWriteCount;
     double SecondsElapsed;
+
+    u64 StartTime;
+    u64 EndTime;
 };
 
-static void RawFlushBuffer(HANDLE TerminalOut, buffer *Frame)
+static void RawFlushBuffer(int OutputHandle, buffer *Frame)
 {
-    WriteFile(TerminalOut, Frame->Data, Frame->Count, 0, 0);
+    _write(OutputHandle, Frame->Data, Frame->Count);
     Frame->Count = 0;
 }
 
-static void FlushBuffer(test_context *Test, buffer *Frame)
+static void FlushBuffer(test_context *Context, buffer *Frame)
 {
-    Test->TotalWriteCount += Frame->Count;
-    RawFlushBuffer(Test->TerminalOut, Frame);
+    Context->TotalWriteCount += Frame->Count;
+    RawFlushBuffer(Context->OutputHandle, Frame);
 }
 
-static void FGBGPerChar(test_context *Test)
+static void BeginTestTimer(test_context *Context)
 {
-    buffer Frame = Test->Frame;
+    Context->StartTime = GetTimer();
+}
 
-    for(int FrameIndex = 0; FrameIndex < Test->TestCount; ++FrameIndex)
+static void EndTestTimer(test_context *Context)
+{
+    Context->EndTime = GetTimer();
+}
+
+static void FGPerChar(test_context *Context)
+{
+    buffer Frame = Context->Frame;
+
+    BeginTestTimer(Context);
+    for(int FrameIndex = 0; FrameIndex < Context->TestCount; ++FrameIndex)
     {
-        for(int Y = 0; Y <= Test->Height; ++Y)
+        for(int Y = 0; Y <= Context->Height; ++Y)
         {
             AppendGoto(&Frame, 1, 1 + Y);
-            for(int X = 0; X <= Test->Width; ++X)
+            for(int X = 0; X <= Context->Width; ++X)
+            {
+                int ForeRed = FrameIndex;
+                int ForeGreen = FrameIndex + Y;
+                int ForeBlue = FrameIndex + Y + X;
+
+                AppendColor(&Frame, true, ForeRed, ForeGreen, ForeBlue);
+
+                char Char = 'a' + (char)((FrameIndex + X + Y) % ('z' - 'a'));
+                AppendChar(&Frame, Char);
+            }
+        }
+
+        FlushBuffer(Context, &Frame);
+    }
+    EndTestTimer(Context);
+}
+
+static void FGBGPerChar(test_context *Context)
+{
+    buffer Frame = Context->Frame;
+
+    BeginTestTimer(Context);
+    for(int FrameIndex = 0; FrameIndex < Context->TestCount; ++FrameIndex)
+    {
+        for(int Y = 0; Y <= Context->Height; ++Y)
+        {
+            AppendGoto(&Frame, 1, 1 + Y);
+            for(int X = 0; X <= Context->Width; ++X)
             {
                 int BackRed = FrameIndex + Y + X;
                 int BackGreen = FrameIndex + Y;
@@ -129,20 +209,63 @@ static void FGBGPerChar(test_context *Test)
             }
         }
 
-        FlushBuffer(Test, &Frame);
+        FlushBuffer(Context, &Frame);
     }
+    EndTestTimer(Context);
+}
+
+static void ManyLine(test_context *Context)
+{
+    buffer Frame = Context->Frame;
+
+    int TotalCharCount = 27;
+    for(size_t At = 0; At < Frame.MaxCount; ++At)
+    {
+        char Pick = (char)(rand()%TotalCharCount);
+        Frame.Data[At] = 'a' + Pick;
+        if(Pick == 26) Frame.Data[At] = '\n';
+    }
+
+    BeginTestTimer(Context);
+    while(Context->TotalWriteCount < Context->TestCount)
+    {
+        Frame.Count = Frame.MaxCount;
+        FlushBuffer(Context, &Frame);
+    }
+    EndTestTimer(Context);
+}
+
+static void LongLine(test_context *Context)
+{
+    buffer Frame = Context->Frame;
+
+    int TotalCharCount = 26;
+    for(size_t At = 0; At < Frame.MaxCount; ++At)
+    {
+        char Pick = (char)(rand()%TotalCharCount);
+        Frame.Data[At] = 'a' + Pick;
+    }
+
+    BeginTestTimer(Context);
+    while(Context->TotalWriteCount < Context->TestCount)
+    {
+        Frame.Count = Frame.MaxCount;
+        FlushBuffer(Context, &Frame);
+    }
+    EndTestTimer(Context);
 }
 
 typedef void test_function(test_context *Test);
 enum test_size
 {
-    TestSize_Normal,
-
     TestSize_Small,
+    TestSize_Normal,
     TestSize_Large,
 
     TestSize_Count,
 };
+static const char *SizeName[] = {"Small", "Normal", "Large"};
+
 struct test
 {
     char const *Name;
@@ -150,16 +273,45 @@ struct test
     size_t TestCount[TestSize_Count];
 };
 
+#define Meg (1024ull*1024ull)
+#define Gig (1024ull*Meg)
+
 static test Tests[] =
 {
-    {"FGBGPerChar", FGBGPerChar, {64, 1024, 65536}},
+    {"ManyLine", ManyLine, {1*Meg, 1*Gig, 16*Gig}},
+    {"LongLine", LongLine, {1*Meg, 1*Gig, 16*Gig}},
+    {"FGPerChar", FGPerChar, {512, 8192, 65536}},
+    {"FGBGPerChar", FGBGPerChar, {512, 8192, 65536}},
 };
 
-extern "C" void mainCRTStartup(void)
+int main(int ArgCount, char **Args)
 {
     int BypassConhost = USE_FAST_PIPE_IF_AVAILABLE();
     int VirtualTerminalSupport = 0;
-    int TestSize = TestSize_Large;
+    int TestSize = TestSize_Normal;
+
+    _setmode(1, _O_BINARY);
+
+    for(int ArgIndex = 1; ArgIndex < ArgCount; ++ArgIndex)
+    {
+        char *Arg = Args[ArgIndex];
+        if(strcmp(Arg, "normal") == 0)
+        {
+            TestSize = TestSize_Normal;
+        }
+        else if(strcmp(Arg, "small") == 0)
+        {
+            TestSize = TestSize_Small;
+        }
+        else if(strcmp(Arg, "large") == 0)
+        {
+            TestSize = TestSize_Large;
+        }
+        else
+        {
+            fprintf(stderr, "Unrecognized argument \"%s\".\n", Arg);
+        }
+    }
 
     char CPU[65] = {};
     for(int SegmentIndex = 0; SegmentIndex < 3; ++SegmentIndex)
@@ -174,27 +326,25 @@ extern "C" void mainCRTStartup(void)
         AppendChar(&NumBuf, 0);
     }
 
-    HANDLE TerminalOut = GetStdHandle(STD_OUTPUT_HANDLE);
-
 #if _WIN32
     if(!BypassConhost)
     {
+        HANDLE TerminalOut = GetStdHandle(STD_OUTPUT_HANDLE);
+
         DWORD WinConMode = 0;
         DWORD EnableVirtualTerminalProcessing = 0x0004;
-         VirtualTerminalSupport = (GetConsoleMode(TerminalOut, &WinConMode) &&
-                                   SetConsoleMode(TerminalOut, (WinConMode & ~(ENABLE_ECHO_INPUT|ENABLE_LINE_INPUT)) |
-                                                  EnableVirtualTerminalProcessing));
+        VirtualTerminalSupport = (GetConsoleMode(TerminalOut, &WinConMode) &&
+                                  SetConsoleMode(TerminalOut, (WinConMode & ~(ENABLE_ECHO_INPUT|ENABLE_LINE_INPUT)) |
+                                                 EnableVirtualTerminalProcessing));
     }
 #endif
 
-    LARGE_INTEGER Freq;
-    QueryPerformanceFrequency(&Freq);
+    int OutputHandle = _fileno(stdout);
+
+    u64 Freq = GetTimerFrequency();
 
     int Width = 80;
     int Height = 24;
-
-    if(Width > MAX_TERM_WIDTH) Width = MAX_TERM_WIDTH;
-    if(Height > MAX_TERM_HEIGHT) Height = MAX_TERM_HEIGHT;
 
     buffer Frame = {sizeof(TerminalBuffer), 0, TerminalBuffer};
 
@@ -204,25 +354,23 @@ extern "C" void mainCRTStartup(void)
         test Test = Tests[TestIndex];
 
         test_context *Context = Contexts + TestIndex;
-        Context->TerminalOut = TerminalOut;
+        Context->OutputHandle = OutputHandle;
         Context->Frame = Frame;
         Context->Width = Width;
         Context->Height = Height;
         Context->TestCount = Test.TestCount[TestSize];
 
-        LARGE_INTEGER Start;
-        QueryPerformanceCounter(&Start);
         Test.Function(Context);
-        LARGE_INTEGER End;
-        QueryPerformanceCounter(&End);
-
-        Context->SecondsElapsed = (double)(End.QuadPart - Start.QuadPart) / (double)Freq.QuadPart;
+        Context->SecondsElapsed = (double)(Context->EndTime - Context->StartTime) / (double)Freq;
     }
 
-    AppendGoto(&Frame, 1, 1);
     AppendColor(&Frame, 0, 0, 0, 0);
     AppendColor(&Frame, 1, 255, 255, 255);
     AppendString(&Frame, "\x1b[0m");
+    for(int ReturnIndex = 0; ReturnIndex < 1024; ++ReturnIndex)
+    {
+        AppendString(&Frame, "\n");
+    }
 
     AppendString(&Frame, "CPU: ");
     AppendString(&Frame, CPU);
@@ -250,41 +398,13 @@ extern "C" void mainCRTStartup(void)
     }
 
     AppendString(&Frame, VERSION_NAME);
+    AppendString(&Frame, " ");
+    AppendString(&Frame, SizeName[TestSize]);
     AppendString(&Frame, ": ");
     AppendDouble(&Frame, TotalSeconds);
     AppendString(&Frame, "s (");
     AppendDouble(&Frame, GetGBS((double)TotalBytes, TotalSeconds));
     AppendString(&Frame, "gb/s)\n");
 
-    RawFlushBuffer(TerminalOut, &Frame);
-}
-
-//
-// NOTE(casey): Support definitions for CRT-less Visual Studio and CLANG
-//
-
-extern "C" int _fltused = 0;
-
-#ifndef __clang__
-#undef function
-#pragma function(memset)
-#endif
-extern "C" void *memset(void *DestInit, int Source, size_t Size)
-{
-    unsigned char *Dest = (unsigned char *)DestInit;
-    while(Size--) *Dest++ = (unsigned char)Source;
-
-    return(DestInit);
-}
-
-#ifndef __clang__
-#pragma function(memcpy)
-#endif
-extern "C" void *memcpy(void *DestInit, void const *SourceInit, size_t Size)
-{
-    unsigned char *Source = (unsigned char *)SourceInit;
-    unsigned char *Dest = (unsigned char *)DestInit;
-    while(Size--) *Dest++ = *Source++;
-
-    return(DestInit);
+    RawFlushBuffer(OutputHandle, &Frame);
 }
