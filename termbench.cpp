@@ -1,4 +1,4 @@
-#define VERSION_NAME "TermMarkV2"
+#define VERSION_NAME "TermMarkV3"
 
 #define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
 typedef unsigned long long u64;
@@ -42,11 +42,21 @@ static u64 GetTimer(void)
 #include <stdlib.h>
 #include <string.h>
 
+#include "fast_pipe.h"
+
 struct buffer
 {
     int MaxCount;
     int Count;
     char *Data;
+};
+
+typedef void test_function(buffer *Dest);
+struct test
+{
+    char const *Name;
+    test_function *Function;
+    double SecondsElapsed;
 };
 
 static char NumberTable[256][4];
@@ -82,7 +92,7 @@ static void AppendDouble(buffer *Buffer, double Value)
 {
     int Result = snprintf(Buffer->Data + Buffer->Count,
                           Buffer->MaxCount - Buffer->Count,
-                          "%.04f", Value);
+                          "%.03f", Value);
     if(Result > 0)
     {
         Buffer->Count += Result;
@@ -116,87 +126,43 @@ static double GetGBS(double Bytes, double Seconds)
     return Result;
 }
 
-static char TerminalBuffer[64*1024*1024];
+#define VT_TEST_WIDTH 80
+#define VT_TEST_HEIGHT 24
 
-#include "fast_pipe.h"
-
-struct test_context
+static void FGPerChar( buffer *Dest)
 {
-    int OutputHandle;
-
-    buffer Frame;
-    int Width;
-    int Height;
-    size_t TestCount;
-
-    size_t TotalWriteCount;
-    double SecondsElapsed;
-
-    u64 StartTime;
-    u64 EndTime;
-};
-
-static void RawFlushBuffer(int OutputHandle, buffer *Frame)
-{
-    WRITE_FUNCTION(OutputHandle, Frame->Data, Frame->Count);
-    Frame->Count = 0;
-}
-
-static void FlushBuffer(test_context *Context, buffer *Frame)
-{
-    Context->TotalWriteCount += Frame->Count;
-    RawFlushBuffer(Context->OutputHandle, Frame);
-}
-
-static void BeginTestTimer(test_context *Context)
-{
-    Context->StartTime = GetTimer();
-}
-
-static void EndTestTimer(test_context *Context)
-{
-    Context->EndTime = GetTimer();
-}
-
-static void FGPerChar(test_context *Context)
-{
-    buffer Frame = Context->Frame;
-
-    BeginTestTimer(Context);
-    for(int FrameIndex = 0; FrameIndex < Context->TestCount; ++FrameIndex)
+    int FrameIndex = 0;
+    while(Dest->Count < Dest->MaxCount)
     {
-        for(int Y = 0; Y <= Context->Height; ++Y)
+        for(int Y = 0; Y < VT_TEST_HEIGHT; ++Y)
         {
-            AppendGoto(&Frame, 1, 1 + Y);
-            for(int X = 0; X <= Context->Width; ++X)
+            AppendGoto(Dest, 1, 1 + Y);
+            for(int X = 0; X < VT_TEST_WIDTH; ++X)
             {
                 int ForeRed = FrameIndex;
                 int ForeGreen = FrameIndex + Y;
                 int ForeBlue = FrameIndex + Y + X;
 
-                AppendColor(&Frame, true, ForeRed, ForeGreen, ForeBlue);
+                AppendColor(Dest, true, ForeRed, ForeGreen, ForeBlue);
 
                 char Char = 'a' + (char)((FrameIndex + X + Y) % ('z' - 'a'));
-                AppendChar(&Frame, Char);
+                AppendChar(Dest, Char);
             }
         }
 
-        FlushBuffer(Context, &Frame);
+        ++FrameIndex;
     }
-    EndTestTimer(Context);
 }
 
-static void FGBGPerChar(test_context *Context)
+static void FGBGPerChar(buffer *Dest)
 {
-    buffer Frame = Context->Frame;
-
-    BeginTestTimer(Context);
-    for(int FrameIndex = 0; FrameIndex < Context->TestCount; ++FrameIndex)
+    int FrameIndex = 0;
+    while(Dest->Count < Dest->MaxCount)
     {
-        for(int Y = 0; Y <= Context->Height; ++Y)
+        for(int Y = 0; Y < VT_TEST_HEIGHT; ++Y)
         {
-            AppendGoto(&Frame, 1, 1 + Y);
-            for(int X = 0; X <= Context->Width; ++X)
+            AppendGoto(Dest, 1, 1 + Y);
+            for(int X = 0; X < VT_TEST_WIDTH; ++X)
             {
                 int BackRed = FrameIndex + Y + X;
                 int BackGreen = FrameIndex + Y;
@@ -206,109 +172,82 @@ static void FGBGPerChar(test_context *Context)
                 int ForeGreen = FrameIndex + Y;
                 int ForeBlue = FrameIndex + Y + X;
 
-                AppendColor(&Frame, false, BackRed, BackGreen, BackBlue);
-                AppendColor(&Frame, true, ForeRed, ForeGreen, ForeBlue);
+                AppendColor(Dest, false, BackRed, BackGreen, BackBlue);
+                AppendColor(Dest, true, ForeRed, ForeGreen, ForeBlue);
 
                 char Char = 'a' + (char)((FrameIndex + X + Y) % ('z' - 'a'));
-                AppendChar(&Frame, Char);
+                AppendChar(Dest, Char);
             }
         }
-
-        FlushBuffer(Context, &Frame);
+        ++FrameIndex;
     }
-    EndTestTimer(Context);
 }
 
-static void ManyLine(test_context *Context)
+static void ManyLine(buffer *Dest)
 {
-    buffer Frame = Context->Frame;
-
     int TotalCharCount = 27;
-    for(size_t At = 0; At < Frame.MaxCount; ++At)
+    while(Dest->Count < Dest->MaxCount)
     {
         char Pick = (char)(rand()%TotalCharCount);
-        Frame.Data[At] = 'a' + Pick;
-        if(Pick == 26) Frame.Data[At] = '\n';
+        char Value = 'a' + Pick;
+        if(Pick == 26) Value = '\n';
+        AppendChar(Dest, Value);
     }
-
-    BeginTestTimer(Context);
-    while(Context->TotalWriteCount < Context->TestCount)
-    {
-        Frame.Count = Frame.MaxCount;
-        FlushBuffer(Context, &Frame);
-    }
-    EndTestTimer(Context);
 }
 
-static void LongLine(test_context *Context)
+static void LongLine(buffer *Dest)
 {
-    buffer Frame = Context->Frame;
-
     int TotalCharCount = 26;
-    for(size_t At = 0; At < Frame.MaxCount; ++At)
+    while(Dest->Count < Dest->MaxCount)
     {
         char Pick = (char)(rand()%TotalCharCount);
-        Frame.Data[At] = 'a' + Pick;
+        char  Value = 'a' + Pick;
+        AppendChar(Dest, Value);
     }
-
-    BeginTestTimer(Context);
-    while(Context->TotalWriteCount < Context->TestCount)
-    {
-        Frame.Count = Frame.MaxCount;
-        FlushBuffer(Context, &Frame);
-    }
-    EndTestTimer(Context);
 }
 
-typedef void test_function(test_context *Test);
-enum test_size
+static void Binary(buffer *Dest)
 {
-    TestSize_Small,
-    TestSize_Normal,
-    TestSize_Large,
-
-    TestSize_Count,
-};
-static const char *SizeName[] = {"Small", "Normal", "Large"};
-
-struct test
-{
-    char const *Name;
-    test_function *Function;
-    size_t TestCount[TestSize_Count];
-};
+    while(Dest->Count < Dest->MaxCount)
+    {
+        char Value = (rand()%256);
+        AppendChar(Dest, Value);
+    }
+}
 
 #define Meg (1024ull*1024ull)
 #define Gig (1024ull*Meg)
 
 static test Tests[] =
 {
-    {"ManyLine", ManyLine, {1*Meg, 1*Gig, 16*Gig}},
-    {"LongLine", LongLine, {1*Meg, 1*Gig, 16*Gig}},
-    {"FGPerChar", FGPerChar, {512, 8192, 65536}},
-    {"FGBGPerChar", FGBGPerChar, {512, 8192, 65536}},
+    {"ManyLine", ManyLine},
+    {"LongLine", LongLine},
+    {"FGPerChar", FGPerChar},
+    {"FGBGPerChar", FGBGPerChar},
+    {"Binary", Binary},
 };
+
+static char TerminalBuffer[64*1024*1024];
 
 int main(int ArgCount, char **Args)
 {
     int BypassConhost = USE_FAST_PIPE_IF_AVAILABLE();
     int VirtualTerminalSupport = 0;
-    int TestSize = TestSize_Normal;
+    char const *TestSizeName = "normal";
+    u64 TestSize = 1*Gig;
 
     for(int ArgIndex = 1; ArgIndex < ArgCount; ++ArgIndex)
     {
         char *Arg = Args[ArgIndex];
-        if(strcmp(Arg, "normal") == 0)
+        if(strcmp(Arg, "small") == 0)
         {
-            TestSize = TestSize_Normal;
-        }
-        else if(strcmp(Arg, "small") == 0)
-        {
-            TestSize = TestSize_Small;
+            TestSizeName = Arg;
+            TestSize = 1*Meg;
         }
         else if(strcmp(Arg, "large") == 0)
         {
-            TestSize = TestSize_Large;
+            TestSizeName = Arg;
+            TestSize = 16*Gig;
         }
         else
         {
@@ -340,7 +279,7 @@ int main(int ArgCount, char **Args)
 #if _WIN32
     int OutputHandle = _fileno(stdout);
     _setmode(1, _O_BINARY);
-    
+
     if(!BypassConhost)
     {
         HANDLE TerminalOut = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -358,27 +297,29 @@ int main(int ArgCount, char **Args)
 
     u64 Freq = GetTimerFrequency();
 
-    int Width = 80;
-    int Height = 24;
-
-    buffer Frame = {sizeof(TerminalBuffer), 0, TerminalBuffer};
-
-    test_context Contexts[ArrayCount(Tests)] = {};
     for(int TestIndex = 0; TestIndex < ArrayCount(Tests); ++TestIndex)
     {
-        test Test = Tests[TestIndex];
+        test *Test = Tests + TestIndex;
 
-        test_context *Context = Contexts + TestIndex;
-        Context->OutputHandle = OutputHandle;
-        Context->Frame = Frame;
-        Context->Width = Width;
-        Context->Height = Height;
-        Context->TestCount = Test.TestCount[TestSize];
+        buffer Buffer = {sizeof(TerminalBuffer), 0, TerminalBuffer};
+        Test->Function(&Buffer);
 
-        Test.Function(Context);
-        Context->SecondsElapsed = (double)(Context->EndTime - Context->StartTime) / (double)Freq;
+        u64 StartTime = GetTimer();
+        u64 Remaining = TestSize;
+        while(Remaining)
+        {
+            int unsigned WriteCount = Buffer.Count;
+            if(WriteCount > Remaining) WriteCount = (int unsigned)Remaining;
+
+            WRITE_FUNCTION(OutputHandle, Buffer.Data, WriteCount);
+            Remaining -= WriteCount;
+        }
+        u64 EndTime = GetTimer();
+
+        Test->SecondsElapsed = (double)(EndTime - StartTime) / (double)Freq;
     }
 
+    buffer Frame = {sizeof(TerminalBuffer), 0, TerminalBuffer};
     AppendColor(&Frame, 0, 0, 0, 0);
     AppendColor(&Frame, 1, 255, 255, 255);
     AppendString(&Frame, "\x1b[0m");
@@ -398,28 +339,29 @@ int main(int ArgCount, char **Args)
     size_t TotalBytes = 0;
     for(int TestIndex = 0; TestIndex < ArrayCount(Tests); ++TestIndex)
     {
-        test Test = Tests[TestIndex];
-        test_context Context = Contexts[TestIndex];
+        test *Test = Tests + TestIndex;
 
-        AppendString(&Frame, Test.Name);
+        AppendString(&Frame, Test->Name);
         AppendString(&Frame, ": ");
-        AppendDouble(&Frame, Context.SecondsElapsed);
+        AppendDouble(&Frame, (double)TestSize / (double)Gig);
+        AppendString(&Frame, "gb / ");
+        AppendDouble(&Frame, Test->SecondsElapsed);
         AppendString(&Frame, "s (");
-        AppendDouble(&Frame, GetGBS((double)Context.TotalWriteCount, Context.SecondsElapsed));
+        AppendDouble(&Frame, GetGBS((double)TestSize, Test->SecondsElapsed));
         AppendString(&Frame, "gb/s)\n");
 
-        TotalSeconds += Context.SecondsElapsed;
-        TotalBytes += Context.TotalWriteCount;
+        TotalSeconds += Test->SecondsElapsed;
+        TotalBytes += TestSize;
     }
 
     AppendString(&Frame, VERSION_NAME);
     AppendString(&Frame, " ");
-    AppendString(&Frame, SizeName[TestSize]);
+    AppendString(&Frame, TestSizeName);
     AppendString(&Frame, ": ");
     AppendDouble(&Frame, TotalSeconds);
     AppendString(&Frame, "s (");
     AppendDouble(&Frame, GetGBS((double)TotalBytes, TotalSeconds));
     AppendString(&Frame, "gb/s)\n");
 
-    RawFlushBuffer(OutputHandle, &Frame);
+    WRITE_FUNCTION(OutputHandle, Frame.Data, Frame.Count);
 }
