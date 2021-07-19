@@ -1,9 +1,19 @@
 @echo off
 
+where /q cl || (
+  echo ERROR: "cl" not found - please run this from the MSVC x64 native tools command prompt.
+  exit /b 1
+)
+
+if "%Platform%" neq "x64" (
+    echo ERROR: Platform is not "x64" - please run this from the MSVC x64 native tools command prompt.
+    exit /b 1
+)
+
 set BaseFile=termbench.cpp
 set CLLinkFlags=-incremental:no -opt:ref -machine:x64 -manifest:no -subsystem:console kernel32.lib user32.lib
 set CLCompileFlags=-Zi -d2Zi+ -Gy -GF -GR- -EHs- -EHc- -EHa- -WX -W4 -nologo -FC -Gm- -diagnostics:column -fp:except- -fp:fast
-set CLANGCompileFlags=-g 
+set CLANGCompileFlags=-g
 set CLANGLinkFlags=-fuse-ld=lld -Wl,-subsystem:console,kernel32.lib,user32.lib
 
 echo -----------------
