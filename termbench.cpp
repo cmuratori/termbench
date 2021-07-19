@@ -71,6 +71,11 @@ static void PreparePlatform(platform_values *Result)
 #include <cpuid.h>
 #endif
 
+#if __APPLE__
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#endif
+
 static u64 GetTimer(void)
 {
     struct timespec Spec;
@@ -94,11 +99,23 @@ static void PreparePlatform(platform_values *Result)
                     (int unsigned *)(Result->CPUString + 16*SegmentIndex + 8),
                     (int unsigned *)(Result->CPUString + 16*SegmentIndex + 12));
     }
-#else
-#error Non-x64 CPU identification code needs to go here.  Please contribute some for your platform!
-#endif
+#elif __APPLE__
+    size_t CpuStringLen = sizeof(Result->CPUString);
 
-    return Result;
+    // Writes out a product model and version - mapping this to a specific silicon chip is left as an exercise for the user.
+    // However, we know it's Arm ("Apple Silicon"), or we'd have take the above cpuid branch.
+    // Example: An M1 MacBookAir reports "MacBookAir10,1"
+    sysctlbyname(
+        "hw.model",
+        Result->CPUString,
+        &CpuStringLen,
+        NULL, // nNewVal
+        0     // newlen
+    );
+#else
+#warning Non-x64 CPU identification code needs to go here.  Please contribute some for your platform!
+    strncpy(Result->CPUString, "Unknown", sizeof(Result->CPUString));
+#endif
 }
 
 #define WRITE_FUNCTION write
