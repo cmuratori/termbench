@@ -7,7 +7,7 @@ This is a simple benchmark you can use to see how your terminal sinks large outp
 On slow terminals, you will want to run termbench like this:
 
 ```
-termbench small
+termbench_release_clang small
 ```
 
 This will run very small data sizes (~1 megabyte) so that the terminal has a prayer of completing the benchmark in a reasonable amount of time.  This is the recommended setting for things like cmd.exe or Windows Terminal.
@@ -15,13 +15,13 @@ This will run very small data sizes (~1 megabyte) so that the terminal has a pra
 For terminals that have reasonable performance, you run it like this:
 
 ```
-termbench
+termbench_release_clang
 ```
 
 for the regular benchmark sizes, or like this
 
 ```
-termbench large
+termbench_release_clang large
 ```
 
 for larger benchmark sizes (if you want more of a stress test than normal).
