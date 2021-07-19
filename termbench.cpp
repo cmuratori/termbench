@@ -3,31 +3,74 @@
 #define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
 typedef unsigned long long u64;
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "fast_pipe.h"
+
+struct platform_values
+{
+    u64 TimerFrequency;
+
+    int OutputHandle;
+    int FastPipesEnabled;
+    int VTCodesEnabled;
+
+    char CPUString[256];
+};
+
 #if _WIN32
+
 #include <windows.h>
 #include <intrin.h>
-static u64 GetTimerFrequency(void)
-{
-    LARGE_INTEGER Result;
-    QueryPerformanceFrequency(&Result);
-    return Result.QuadPart;
-}
+
 static u64 GetTimer(void)
 {
     LARGE_INTEGER Result;
     QueryPerformanceCounter(&Result);
     return Result.QuadPart;
 }
+
+static void PreparePlatform(platform_values *Result)
+{
+    Result->FastPipesEnabled = USE_FAST_PIPE_IF_AVAILABLE();
+
+    LARGE_INTEGER Freq;
+    QueryPerformanceFrequency(&Freq);
+    Result->TimerFrequency = Freq.QuadPart;
+
+    Result->OutputHandle = _fileno(stdout);
+    _setmode(Result->OutputHandle, _O_BINARY);
+
+    if(!Result->FastPipesEnabled)
+    {
+        HANDLE TerminalOut = GetStdHandle(STD_OUTPUT_HANDLE);
+
+        DWORD WinConMode = 0;
+        DWORD EnableVirtualTerminalProcessing = 0x0004;
+        Result->VTCodesEnabled = (GetConsoleMode(TerminalOut, &WinConMode) &&
+                                      SetConsoleMode(TerminalOut, (WinConMode & ~(ENABLE_ECHO_INPUT|ENABLE_LINE_INPUT)) |
+                                                 EnableVirtualTerminalProcessing));
+        SetConsoleOutputCP(65001);
+    }
+
+    for(int SegmentIndex = 0; SegmentIndex < 3; ++SegmentIndex)
+    {
+        __cpuid((int *)(Result->CPUString + 16*SegmentIndex), 0x80000002 + SegmentIndex);
+    }
+}
+
 #define WRITE_FUNCTION _write
+
 #else
+
 #include <time.h>
 #include <unistd.h>
+#if __x86_64__
 #include <cpuid.h>
-static u64 GetTimerFrequency(void)
-{
-    u64 Result = 1000000000ull;
-    return Result;
-}
+#endif
+
 static u64 GetTimer(void)
 {
     struct timespec Spec;
@@ -35,14 +78,32 @@ static u64 GetTimer(void)
     u64 Result = ((u64)Spec.tv_sec * 1000000000ull) + (u64)Spec.tv_nsec;
     return Result;
 }
-#define WRITE_FUNCTION write
+
+static void PreparePlatform(platform_values *Result)
+{
+    Result->TimerFrequency = 1000000000ull;
+    Result->OutputHandle = STDOUT_FILENO;
+    Result->VTCodesEnabled = true;
+
+#if __x86_64__
+    for(int SegmentIndex = 0; SegmentIndex < 3; ++SegmentIndex)
+    {
+        __get_cpuid(0x80000002 + SegmentIndex,
+                    (int unsigned *)(Result->CPUString + 16*SegmentIndex),
+                    (int unsigned *)(Result->CPUString + 16*SegmentIndex + 4),
+                    (int unsigned *)(Result->CPUString + 16*SegmentIndex + 8),
+                    (int unsigned *)(Result->CPUString + 16*SegmentIndex + 12));
+    }
+#else
+#error Non-x64 CPU identification code needs to go here.  Please contribute some for your platform!
 #endif
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+    return Result;
+}
 
-#include "fast_pipe.h"
+#define WRITE_FUNCTION write
+
+#endif
 
 struct buffer
 {
@@ -58,8 +119,6 @@ struct test
     test_function *Function;
     double SecondsElapsed;
 };
-
-static char NumberTable[256][4];
 
 static void AppendChar(buffer *Buffer, char Char)
 {
@@ -111,11 +170,11 @@ static void AppendGoto(buffer *Buffer, int X, int Y)
 static void AppendColor(buffer *Buffer, int IsForeground, int unsigned Red, int unsigned Green, int unsigned Blue)
 {
     AppendString(Buffer, IsForeground ? "\x1b[38;2;" : "\x1b[48;2;");
-    AppendString(Buffer, NumberTable[Red & 0xff]);
+    AppendDecimal(Buffer, Red & 0xff);
     AppendChar(Buffer, ';');
-    AppendString(Buffer, NumberTable[Green & 0xff]);
+    AppendDecimal(Buffer, Green & 0xff);
     AppendChar(Buffer, ';');
-    AppendString(Buffer, NumberTable[Blue & 0xff]);
+    AppendDecimal(Buffer, Blue & 0xff);
     AppendChar(Buffer, 'm');
 }
 
@@ -229,10 +288,14 @@ static test Tests[] =
 
 static char TerminalBuffer[64*1024*1024];
 
+static char unsigned Message1[] = { 0xE0, 0xA4, 0x9C, 0xE0, 0xA5, 0x8B, 0x20, 0xE0, 0xA4, 0xB8, 0xE0, 0xA5, 0x8B, 0x20, 0xE0, 0xA4, 0xB0, 0xE0, 0xA4, 0xB9, 0xE0, 0xA4, 0xBE, 0x20, 0xE0, 0xA4, 0xB9, 0xE0, 0xA5, 0x8B, 0x20, 0xE0, 0xA4, 0x89, 0xE0, 0xA4, 0xB8, 0xE0, 0xA5, 0x87, 0x20, 0xE0, 0xA4, 0xA4, 0xE0, 0xA5, 0x8B, 0x20, 0xE0, 0xA4, 0x9C, 0xE0, 0xA4, 0x97, 0xE0, 0xA4, 0xBE, 0x20, 0xE0, 0xA4, 0xB8, 0xE0, 0xA4, 0x95, 0xE0, 0xA4, 0xA4, 0xE0, 0xA5, 0x87, 0x20, 0xE0, 0xA4, 0xB9, 0xE0, 0xA5, 0x88, 0xE0, 0xA4, 0x82, 0x2C, 0x20, 0xE0, 0xA4, 0xB2, 0xE0, 0xA5, 0x87, 0xE0, 0xA4, 0x95, 0xE0, 0xA4, 0xBF, 0xE0, 0xA4, 0xA8, 0x20, 0xE0, 0xA4, 0x9C, 0xE0, 0xA5, 0x8B, 0x20, 0xE0, 0xA4, 0x86, 0xE0, 0xA4, 0x81, 0xE0, 0xA4, 0x96, 0xE0, 0xA5, 0x87, 0x20, 0xE0, 0xA4, 0xAE, 0xE0, 0xA5, 0x82, 0xE0, 0xA4, 0x81, 0xE0, 0xA4, 0xA6, 0x20, 0xE0, 0xA4, 0x95, 0xE0, 0xA4, 0xB0, 0x20, 0xE0, 0xA4, 0xB8, 0xE0, 0xA5, 0x8B, 0xE0, 0xA4, 0xA8, 0xE0, 0xA5, 0x87, 0x20, 0xE0, 0xA4, 0x95, 0xE0, 0xA4, 0xBE, 0x20, 0xE0, 0xA4, 0x85, 0xE0, 0xA4, 0xAD, 0xE0, 0xA4, 0xBF, 0xE0, 0xA4, 0xA8, 0xE0, 0xA4, 0xAF, 0x20, 0xE0, 0xA4, 0x95, 0xE0, 0xA4, 0xB0, 0x20, 0xE0, 0xA4, 0xB0, 0xE0, 0xA4, 0xB9, 0xE0, 0xA4, 0xBE, 0x20, 0xE0, 0xA4, 0xB9, 0xE0, 0xA5, 0x8B, 0x20, 0xE0, 0xA4, 0x89, 0xE0, 0xA4, 0xB8, 0xE0, 0xA5, 0x87, 0x20, 0xE0, 0xA4, 0x95, 0xE0, 0xA5, 0x88, 0xE0, 0xA4, 0xB8, 0xE0, 0xA5, 0x87, 0x20, 0xE0, 0xA4, 0x9C, 0xE0, 0xA4, 0x97, 0xE0, 0xA4, 0xBE, 0xE0, 0xA4, 0x8F, 0xE0, 0xA4, 0x82, 0xE0, 0xA4, 0x97, 0xE0, 0xA5, 0x87, 0x20, 0x7C, 0x20, '\n', 0};
+static char Message2[] = "You can wake up one who is sleeping, but not one who is pretending to be asleep.\n";
+
 int main(int ArgCount, char **Args)
 {
-    int BypassConhost = USE_FAST_PIPE_IF_AVAILABLE();
-    int VirtualTerminalSupport = 0;
+    platform_values Platform = {};
+    PreparePlatform(&Platform);
+
     char const *TestSizeName = "normal";
     u64 TestSize = 1*Gig;
 
@@ -255,48 +318,6 @@ int main(int ArgCount, char **Args)
         }
     }
 
-    char CPU[65] = {};
-    for(int SegmentIndex = 0; SegmentIndex < 3; ++SegmentIndex)
-    {
-#if _WIN32
-        __cpuid((int *)(CPU + 16*SegmentIndex), 0x80000002 + SegmentIndex);
-#else
-        __get_cpuid(0x80000002 + SegmentIndex,
-                    (int unsigned *)(CPU + 16*SegmentIndex),
-                    (int unsigned *)(CPU + 16*SegmentIndex + 4),
-                    (int unsigned *)(CPU + 16*SegmentIndex + 8),
-                    (int unsigned *)(CPU + 16*SegmentIndex + 12));
-#endif
-    }
-
-    for(int Num = 0; Num < 256; ++Num)
-    {
-        buffer NumBuf = {sizeof(NumberTable[Num]), 0, NumberTable[Num]};
-        AppendDecimal(&NumBuf, Num);
-        AppendChar(&NumBuf, 0);
-    }
-
-#if _WIN32
-    int OutputHandle = _fileno(stdout);
-    _setmode(1, _O_BINARY);
-
-    if(!BypassConhost)
-    {
-        HANDLE TerminalOut = GetStdHandle(STD_OUTPUT_HANDLE);
-
-        DWORD WinConMode = 0;
-        DWORD EnableVirtualTerminalProcessing = 0x0004;
-        VirtualTerminalSupport = (GetConsoleMode(TerminalOut, &WinConMode) &&
-                                  SetConsoleMode(TerminalOut, (WinConMode & ~(ENABLE_ECHO_INPUT|ENABLE_LINE_INPUT)) |
-                                                 EnableVirtualTerminalProcessing));
-    }
-#else
-    int OutputHandle = STDOUT_FILENO;
-#endif
-
-
-    u64 Freq = GetTimerFrequency();
-
     for(int TestIndex = 0; TestIndex < ArrayCount(Tests); ++TestIndex)
     {
         test *Test = Tests + TestIndex;
@@ -311,12 +332,12 @@ int main(int ArgCount, char **Args)
             int unsigned WriteCount = Buffer.Count;
             if(WriteCount > Remaining) WriteCount = (int unsigned)Remaining;
 
-            WRITE_FUNCTION(OutputHandle, Buffer.Data, WriteCount);
+            WRITE_FUNCTION(Platform.OutputHandle, Buffer.Data, WriteCount);
             Remaining -= WriteCount;
         }
         u64 EndTime = GetTimer();
 
-        Test->SecondsElapsed = (double)(EndTime - StartTime) / (double)Freq;
+        Test->SecondsElapsed = (double)(EndTime - StartTime) / (double)Platform.TimerFrequency;
     }
 
     buffer Frame = {sizeof(TerminalBuffer), 0, TerminalBuffer};
@@ -328,11 +349,20 @@ int main(int ArgCount, char **Args)
         AppendString(&Frame, "\n");
     }
 
-    AppendString(&Frame, "CPU: ");
-    AppendString(&Frame, CPU);
+    AppendString(&Frame, (char *)Message1);
+    AppendString(&Frame, (char *)Message2);
     AppendString(&Frame, "\n");
+
+    AppendString(&Frame, "CPU: ");
+    AppendString(&Frame, Platform.CPUString);
+    AppendString(&Frame, "\n");
+
     AppendString(&Frame, "VT support: ");
-    AppendString(&Frame, VirtualTerminalSupport ? "yes" : "no");
+    AppendString(&Frame, Platform.VTCodesEnabled ? "yes" : "no");
+    AppendString(&Frame, "\n");
+
+    AppendString(&Frame, "Fast pipes: ");
+    AppendString(&Frame, Platform.FastPipesEnabled ? "yes" : "no");
     AppendString(&Frame, "\n");
 
     double TotalSeconds = 0.0;
@@ -363,5 +393,5 @@ int main(int ArgCount, char **Args)
     AppendDouble(&Frame, GetGBS((double)TotalBytes, TotalSeconds));
     AppendString(&Frame, "gb/s)\n");
 
-    WRITE_FUNCTION(OutputHandle, Frame.Data, Frame.Count);
+    WRITE_FUNCTION(Platform.OutputHandle, Frame.Data, Frame.Count);
 }
