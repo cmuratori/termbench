@@ -16,4 +16,5 @@ const char *EndingMessage =
   u8"Îl poți trezi pe omul care doarme, dar nu și pe cel care se preface că doarme.\n"
   u8"Du kan väcka den som sover, men inte den som låtsas sova.\n"
   u8"Може да събудиш спящия, но не и този, който се преструва.\n"
+  u8"اپ سونے والے کو جگآ سکتے ہیں، جو سونے کا بہانہ کر رہا ہے، اسے نہیں\n"
 ;
