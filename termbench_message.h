@@ -13,7 +13,12 @@ const char *EndingMessage =
   u8"Você pode acordar alguém que está dormindo, mas não alguém que finge estar dormindo.\n"
   u8"Можно разбудить того кто спит, но не того кто притворяется спящим.\n"
   u8"Можеш да пробудиш оног који спава, али не оног који се претвара да спава.\n"
+  u8"Možeš probuditi onog koji spava, ali ne onog koji se pretvara da spava.\n"
   u8"Îl poți trezi pe omul care doarme, dar nu și pe cel care se preface că doarme.\n"
   u8"Du kan väcka den som sover, men inte den som låtsas sova.\n"
   u8"Si può svegliare chi dorme, ma non chi fa finta di dormire.\n"
+  u8"Felébresztheted azt, aki alszik, de azt nem, aki csak úgy tesz, mintha aludna.\n"
+  u8"Spiaceho človeka môžete zobudiť, ale toho, ktorý spánok predstiera, nie.\n"
+  u8"Може да събудиш спящия, но не и този, който се преструва.\n"
+  u8"اپ سونے والے کو جگآ سکتے ہیں، جو سونے کا بہانہ کر رہا ہے، اسے نہیں\n"
 ;
