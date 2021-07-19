@@ -20,9 +20,18 @@ static u64 GetTimer(void)
 }
 #define WRITE_FUNCTION _write
 #else
+
 #include <time.h>
 #include <unistd.h>
+
+#ifdef __aarch64__
+#include <sys/types.h>
+#include <sys/sysctl.h>
+
+#else
 #include <cpuid.h>
+#endif
+
 static u64 GetTimerFrequency(void)
 {
     u64 Result = 1000000000ull;
@@ -289,6 +298,30 @@ static test Tests[] =
     {"FGBGPerChar", FGBGPerChar, {512, 8192, 65536}},
 };
 
+static const char* GetCPU()
+{
+    static char CPU[65] = {};
+
+#ifdef __aarch64__
+    size_t _size = sizeof(CPU);
+    sysctlbyname("machdep.cpu.brand_string", &CPU, &_size, 0, 0);
+#else
+    for(int SegmentIndex = 0; SegmentIndex < 3; ++SegmentIndex)
+    {
+#if _WIN32
+        __cpuid((int *)(CPU + 16*SegmentIndex), 0x80000002 + SegmentIndex);
+#else
+        __get_cpuid(0x80000002 + SegmentIndex,
+                    (int unsigned *)(CPU + 16*SegmentIndex),
+                    (int unsigned *)(CPU + 16*SegmentIndex + 4),
+                    (int unsigned *)(CPU + 16*SegmentIndex + 8),
+                    (int unsigned *)(CPU + 16*SegmentIndex + 12));
+#endif
+    }
+#endif
+    return CPU;
+}
+
 int main(int ArgCount, char **Args)
 {
     int BypassConhost = USE_FAST_PIPE_IF_AVAILABLE();
@@ -316,19 +349,7 @@ int main(int ArgCount, char **Args)
         }
     }
 
-    char CPU[65] = {};
-    for(int SegmentIndex = 0; SegmentIndex < 3; ++SegmentIndex)
-    {
-#if _WIN32
-        __cpuid((int *)(CPU + 16*SegmentIndex), 0x80000002 + SegmentIndex);
-#else
-        __get_cpuid(0x80000002 + SegmentIndex,
-                    (int unsigned *)(CPU + 16*SegmentIndex),
-                    (int unsigned *)(CPU + 16*SegmentIndex + 4),
-                    (int unsigned *)(CPU + 16*SegmentIndex + 8),
-                    (int unsigned *)(CPU + 16*SegmentIndex + 12));
-#endif
-    }
+    const char* CPU = GetCPU();
 
     for(int Num = 0; Num < 256; ++Num)
     {
@@ -340,7 +361,7 @@ int main(int ArgCount, char **Args)
 #if _WIN32
     int OutputHandle = _fileno(stdout);
     _setmode(1, _O_BINARY);
-    
+
     if(!BypassConhost)
     {
         HANDLE TerminalOut = GetStdHandle(STD_OUTPUT_HANDLE);
