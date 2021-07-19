@@ -114,11 +114,10 @@ static void PreparePlatform(platform_values *Result)
 #elif __APPLE__
     size_t CpuStringLen = sizeof(Result->CPUString);
 
-    // Writes out a product model and version - mapping this to a specific silicon chip is left as an exercise for the user.
-    // However, we know it's Arm ("Apple Silicon"), or we'd have take the above cpuid branch.
-    // Example: An M1 MacBookAir reports "MacBookAir10,1"
+    // Writes out the CPU brand.
+    // Example: On an M1 Mac this would be "Apple M1"
     sysctlbyname(
-                 "hw.model",
+                 "machdep.cpu.brand_string",
                  Result->CPUString,
                  &CpuStringLen,
                  NULL, // nNewVal
