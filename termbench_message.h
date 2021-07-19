@@ -15,4 +15,5 @@ const char *EndingMessage =
   u8"Можеш да пробудиш оног који спава, али не оног који се претвара да спава.\n"
   u8"Îl poți trezi pe omul care doarme, dar nu și pe cel care se preface că doarme.\n"
   u8"Du kan väcka den som sover, men inte den som låtsas sova.\n"
+  u8"jan li lape la sina ken weka e lape ona. taso jan li lape lukin li lape lon ala la sina ken ala.\n"
 ;
