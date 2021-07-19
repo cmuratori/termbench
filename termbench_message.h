@@ -12,4 +12,5 @@ const char *EndingMessage =
   u8"Sie können jemanden wecken, der schläft, aber nicht einen, der bloß vortäuscht zu schlafen.\n"
   u8"Você pode acordar alguém que está dormindo, mas não alguém que finge estar dormindo.\n"
   u8"Можно разбудить того кто спит, но не того кто притворяется спящим.\n"
+  u8"Îl poți trezi pe omul care doarme, dar nu și pe cel care se preface că doarme.\n"
 ;
