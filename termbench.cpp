@@ -366,6 +366,12 @@ int main(int ArgCount, char **Args)
     }
 
     buffer Frame = {sizeof(TerminalBuffer), 0, TerminalBuffer};
+
+    // After a binary output, the VT state may be potentially corrupted.
+    // So hard-reset the terminal.
+    AppendChar(&Frame, '\x1b');
+    AppendChar(&Frame, 'c');
+
     AppendColor(&Frame, 0, 0, 0, 0);
     AppendColor(&Frame, 1, 255, 255, 255);
     AppendString(&Frame, "\x1b[0m");
