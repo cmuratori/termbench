@@ -359,7 +359,7 @@ int main(int ArgCount, char **Args)
         }
     }
 
-    for(int TestIndex = 0; TestIndex < ArrayCount(Tests); ++TestIndex)
+    for(size_t TestIndex = 0; TestIndex < ArrayCount(Tests); ++TestIndex)
     {
         test *Test = Tests + TestIndex;
 
@@ -419,7 +419,7 @@ int main(int ArgCount, char **Args)
 
     double TotalSeconds = 0.0;
     size_t TotalBytes = 0;
-    for(int TestIndex = 0; TestIndex < ArrayCount(Tests); ++TestIndex)
+    for(size_t TestIndex = 0; TestIndex < ArrayCount(Tests); ++TestIndex)
     {
         test *Test = Tests + TestIndex;
 
