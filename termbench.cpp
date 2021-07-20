@@ -10,6 +10,9 @@ typedef unsigned long long u64;
 #include "fast_pipe.h"
 #include "termbench_message.h"
 
+#define VT_TEST_WIDTH 80
+#define VT_TEST_HEIGHT 24
+
 struct platform_values
 {
     u64 TimerFrequency;
@@ -17,6 +20,9 @@ struct platform_values
     int OutputHandle;
     int FastPipesEnabled;
     int VTCodesEnabled;
+
+    int LineCount;
+    int ColumnCount;
 
     char CPUString[256];
 };
@@ -36,6 +42,8 @@ static u64 GetTimer(void)
 static void PreparePlatform(platform_values *Result)
 {
     Result->FastPipesEnabled = USE_FAST_PIPE_IF_AVAILABLE();
+    Result->LineCount = VT_TEST_HEIGHT;
+    Result->ColumnCount = VT_TEST_WIDTH;
 
     LARGE_INTEGER Freq;
     QueryPerformanceFrequency(&Freq);
@@ -77,8 +85,10 @@ static void PreparePlatform(platform_values *Result)
 
 #else
 
+#include <sys/ioctl.h>
 #include <time.h>
 #include <unistd.h>
+
 #if __x86_64__
 #include <cpuid.h>
 #endif
@@ -101,6 +111,15 @@ static void PreparePlatform(platform_values *Result)
     Result->TimerFrequency = 1000000000ull;
     Result->OutputHandle = STDOUT_FILENO;
     Result->VTCodesEnabled = true;
+    Result->LineCount = VT_TEST_HEIGHT;
+    Result->ColumnCount = VT_TEST_WIDTH;
+
+    winsize ws{};
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0)
+    {
+        Result->LineCount = ws.ws_row;
+        Result->ColumnCount = ws.ws_col;
+    }
 
 #if __x86_64__
     for(int SegmentIndex = 0; SegmentIndex < 3; ++SegmentIndex)
@@ -140,7 +159,7 @@ struct buffer
     char *Data;
 };
 
-typedef void test_function(buffer *Dest);
+typedef void test_function(buffer *Dest, platform_values *Platorm);
 struct test
 {
     char const *Name;
@@ -213,18 +232,15 @@ static double GetGBS(double Bytes, double Seconds)
     return Result;
 }
 
-#define VT_TEST_WIDTH 80
-#define VT_TEST_HEIGHT 24
-
-static void FGPerChar( buffer *Dest)
+static void FGPerChar( buffer *Dest, platform_values *Platform)
 {
     int FrameIndex = 0;
     while(Dest->Count < Dest->MaxCount)
     {
-        for(int Y = 0; Y < VT_TEST_HEIGHT; ++Y)
+        for(int Y = 0; Y < Platform->LineCount; ++Y)
         {
             AppendGoto(Dest, 1, 1 + Y);
-            for(int X = 0; X < VT_TEST_WIDTH; ++X)
+            for(int X = 0; X < Platform->ColumnCount; ++X)
             {
                 int ForeRed = FrameIndex;
                 int ForeGreen = FrameIndex + Y;
@@ -241,15 +257,15 @@ static void FGPerChar( buffer *Dest)
     }
 }
 
-static void FGBGPerChar(buffer *Dest)
+static void FGBGPerChar(buffer *Dest, platform_values *Platform)
 {
     int FrameIndex = 0;
     while(Dest->Count < Dest->MaxCount)
     {
-        for(int Y = 0; Y < VT_TEST_HEIGHT; ++Y)
+        for(int Y = 0; Y < Platform->LineCount; ++Y)
         {
             AppendGoto(Dest, 1, 1 + Y);
-            for(int X = 0; X < VT_TEST_WIDTH; ++X)
+            for(int X = 0; X < Platform->ColumnCount; ++X)
             {
                 int BackRed = FrameIndex + Y + X;
                 int BackGreen = FrameIndex + Y;
@@ -270,7 +286,7 @@ static void FGBGPerChar(buffer *Dest)
     }
 }
 
-static void ManyLine(buffer *Dest)
+static void ManyLine(buffer *Dest, platform_values *)
 {
     int TotalCharCount = 27;
     while(Dest->Count < Dest->MaxCount)
@@ -282,7 +298,7 @@ static void ManyLine(buffer *Dest)
     }
 }
 
-static void LongLine(buffer *Dest)
+static void LongLine(buffer *Dest, platform_values *)
 {
     int TotalCharCount = 26;
     while(Dest->Count < Dest->MaxCount)
@@ -293,7 +309,7 @@ static void LongLine(buffer *Dest)
     }
 }
 
-static void Binary(buffer *Dest)
+static void Binary(buffer *Dest, platform_values *)
 {
     while(Dest->Count < Dest->MaxCount)
     {
@@ -348,7 +364,7 @@ int main(int ArgCount, char **Args)
         test *Test = Tests + TestIndex;
 
         buffer Buffer = {sizeof(TerminalBuffer), 0, TerminalBuffer};
-        Test->Function(&Buffer);
+        Test->Function(&Buffer, &Platform);
 
         u64 StartTime = GetTimer();
         u64 Remaining = TestSize;
@@ -390,6 +406,12 @@ int main(int ArgCount, char **Args)
     AppendString(&Frame, "VT support expected: ");
     AppendString(&Frame, Platform.VTCodesEnabled ? "yes" : "no");
     AppendString(&Frame, "\n");
+
+    AppendString(&Frame, "Screen size: ");
+    AppendDecimal(&Frame, Platform.ColumnCount);
+    AppendChar(&Frame, 'x');
+    AppendDecimal(&Frame, Platform.LineCount);
+    AppendChar(&Frame, '\n');
 
     AppendString(&Frame, "Fast pipes: ");
     AppendString(&Frame, Platform.FastPipesEnabled ? "yes" : "no");
