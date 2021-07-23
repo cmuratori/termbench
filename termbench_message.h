@@ -5,7 +5,7 @@ const char *EndingMessage =
   u8"Μπορείς να ξυπνήσεις κάποιον που κοιμάται, αλλά όχι κάποιον που προσποιείται ότι κοιμάται.\n"
   u8"يُمكِنُكَ أَن تُوقِظَ مَن هُوَ نَائِم، لَكنَّكَ لَنْ تُوقِظَ مَن هُوَ مُتَظَاهِرٌ بِالنَّوم.\n"
   u8"자는 사람은 깨울 수 있어도, 자는 척 하는 사람은 깨울 수 없다.\n"
-  u8"Se puede despertar a alguien que duerme, pero no a alguien que pretende dormir.\n"
+  u8"Se puede despertar a alguien que duerme, pero no a alguien que finge dormir.\n"
   u8"Tu peux réveiller celui qui dort, mais pas celui qui prétend dormir.\n"
   u8"תּוּכַל לְהָעִיר אָדָם יָשָׁן, אַךְ לֹא תּוּכַל לְהָעִיר אָדָם הַמַּעֲמִיד פְּנֵי יָשָׁן.\n"
   u8"ಮಲಗಿರುವನನ್ನು ಎಬ್ಬಿಸಬಹುದು. ಮಲಗುವ ನೆಪ ಮಾಡುವನನ್ನು ಎಬ್ಬಿಸಲಾಗದು.\n"
