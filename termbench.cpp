@@ -22,7 +22,16 @@ static u64 GetTimer(void)
 #else
 #include <time.h>
 #include <unistd.h>
-#include <cpuid.h>
+
+
+#if (defined(__APPLE__)) && (defined(__arm64__))
+	#include <sys/sysctl.h>
+#else
+	#include <cpuid.h>  // For __cpuid_count()
+#endif
+
+
+
 static u64 GetTimerFrequency(void)
 {
     u64 Result = 1000000000ull;
@@ -317,6 +326,25 @@ int main(int ArgCount, char **Args)
     }
 
     char CPU[65] = {};
+
+#if (defined(__APPLE__)) && (defined(__arm64__))
+    size_t size=64;
+    char ARMCPU[65] = {};
+    int64_t totalcpu = 0;
+    int64_t cpuhigh = 0;
+    int64_t cpulow = 0;
+
+    memset(ARMCPU,0,size);
+    size=sizeof(totalcpu);
+    sysctlbyname("hw.ncpu", &totalcpu, &size, NULL, 0);
+    size=sizeof(cpuhigh);
+    sysctlbyname("hw.perflevel0.physicalcpu", &cpuhigh, &size, NULL, 0);
+    size=sizeof(cpulow);
+    sysctlbyname("hw.perflevel1.physicalcpu", &cpulow, &size, NULL, 0);
+    size=64;
+    sysctlbyname("machdep.cpu.brand_string", &ARMCPU, &size, NULL, 0);
+    snprintf(CPU,64, "%s %lld Core Processor (HP:%lld LP:%lld)",ARMCPU,totalcpu,cpuhigh,cpulow);
+#else
     for(int SegmentIndex = 0; SegmentIndex < 3; ++SegmentIndex)
     {
 #if _WIN32
@@ -330,6 +358,8 @@ int main(int ArgCount, char **Args)
 #endif
     }
 
+#endif
+
     for(int Num = 0; Num < 256; ++Num)
     {
         buffer NumBuf = {sizeof(NumberTable[Num]), 0, NumberTable[Num]};
@@ -340,7 +370,7 @@ int main(int ArgCount, char **Args)
 #if _WIN32
     int OutputHandle = _fileno(stdout);
     _setmode(1, _O_BINARY);
-    
+
     if(!BypassConhost)
     {
         HANDLE TerminalOut = GetStdHandle(STD_OUTPUT_HANDLE);
