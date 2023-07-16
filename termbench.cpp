@@ -436,7 +436,7 @@ int main(int ArgCount, char **Args)
         AppendDouble(&Frame, Context.SecondsElapsed);
         AppendString(&Frame, "s (");
         AppendDouble(&Frame, GetGBS((double)Context.TotalWriteCount, Context.SecondsElapsed));
-        AppendString(&Frame, "gb/s)\n");
+        AppendString(&Frame, " GiB/s)\n");
 
         TotalSeconds += Context.SecondsElapsed;
         TotalBytes += Context.TotalWriteCount;
@@ -449,7 +449,7 @@ int main(int ArgCount, char **Args)
     AppendDouble(&Frame, TotalSeconds);
     AppendString(&Frame, "s (");
     AppendDouble(&Frame, GetGBS((double)TotalBytes, TotalSeconds));
-    AppendString(&Frame, "gb/s)\n");
+    AppendString(&Frame, " GiB/s)\n");
 
     RawFlushBuffer(OutputHandle, &Frame);
 }

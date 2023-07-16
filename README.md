@@ -28,7 +28,7 @@ for larger benchmark sizes (if you want more of a stress test than normal).
 
 # Expected Results
 
-On modern Windows machines with memory bandwidth in the 10-20gb/s range, the expected throughput for these tests would be in the 0.5-2.0gb/s range for a reasonable terminal.  Numbers significantly higher than that might indicate a well-optimized terminal, and numbers significantly lower than that might indicate a poorly written terminal.
+On modern Windows machines with memory bandwidth in the 10-20 GiB/s range, the expected throughput for these tests would be in the 0.5-2.0 GiB/s range for a reasonable terminal.  Numbers significantly higher than that might indicate a well-optimized terminal, and numbers significantly lower than that might indicate a poorly written terminal.
 
 Termbench has not yet been tested on Linux, so we do not have expected bandwidth numbers at this time.
 
